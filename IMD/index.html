@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans|Roboto"/>
+<link rel="stylesheet" href="https://traffordDataLab.io/css/labBase.css"/>
+<style>
+
+html, body
+{
+    padding: 10;
+    margin: 10;
+    height: 100%;
+    font-family: 'Open Sans', sans-serif;
+    color: #212121;
+}
+
+.lsoa {
+  fill: #ccc;
+  stroke: #fff;
+}
+.centroid{
+  fill: #ccc;
+  stroke: #777;
+  stroke-width: .5px;
+}
+.mapTitle{
+  font-size: 20px;
+}
+.subtitle{
+  font-size: 15px;
+}
+.source{
+  font-size: 10px;
+}
+
+.label{
+  font-size: 13px;
+}
+#histograms{
+  float: left;
+   width: 46%;
+   padding-top: 50px;
+}
+#map{
+  float: left;
+  width: 550px
+}
+#histograms::after{
+  display: block;
+    clear: both;
+}
+</style>
+<body>
+  <h2>Index of Multiple Deprivation (IMD) 2015 </h2>
+  <p>The Index of Multiple Deprivation provides a summary measure of relative deprivation at Lower Super Output Area (LSOA) using a total of 37 indicators. The IMD include seven different domains of deprivation providing a rich insight of relative deprivation in small areas.</p>
+  <p>There are 138 LSOA within Trafford with a population of around 1500, move the mouse over the charts to explore the distribution of LSOAs according to the decile they are classified. </p>
+  <div id="map"></div>
+  <div id="histograms"></div>
+
+  <script src="http://d3js.org/d3.v4.min.js"></script>
+
+  <script>
+
+  var width = 960,
+  height = 600;
+
+  var colors=['#8b0000','#ac4a2f','#c97d5d','#e1b08f','#f6e4c4','#e9e1d8','#bca7c6','#8e6fb3','#5b3a9f','#00008b']
+  var imdDomains={Index:"Index of Multiple Deprivation (IMD)", Income:"Income deprivation", Employment:"Employment deprivation", Health:"Health deprivation and disability", Education:"Education, skills and training deprivation", Barriers:"Barriers to housing and services", Living:"Living environment deprivation", Crime:"Crime"};
+  var chosenProjection = d3.geoMercator()
+  .center([-2.35533605967,53.4190090526])
+  .scale(width*140)
+  .translate([300, 300])
+
+  var path = d3.geoPath()
+  .projection(chosenProjection);
+
+  var map = d3.select("#map").append("svg")
+  .attr("width", width/1.7)
+  .attr("height", height)
+  .attr("id", "map")
+
+  map.append("text")
+  .attr("class", "mapTitle")
+  .attr("y", "30")
+  .attr("x", "5")
+  .text("")
+
+//load imd data
+  d3.csv("IMD_trafford.csv",function(imd){
+    //load geojson
+    d3.json("https://www.trafforddatalab.io/boundaries/trafford/trafford_lsoa.geojson", function(error, geoData) {
+      //render file
+      map.append("path")
+      .attr("class", "lsoa")
+      .attr("d", path(geoData));
+
+      map.append("text")
+      .attr("class", "source")
+      .attr("y", "600")
+      .attr("x", "5")
+      .text("Source: Index of Multiple Deprivation, ONS")
+
+      var centroids = geoData.features.map(function (feature){
+        var  data={};
+        data.centroid=path.centroid(feature);
+        data.area_code=feature.properties.lsoa11cd;
+        for (var i = 0; i < imd.length;i++){
+          if (imd[i].lsoa11cd==data.area_code){
+            var classString="";
+            for(var key in imd[i]){
+              if(imd[i].hasOwnProperty(key)){
+                classString+=" " +key+imd[i][key];
+              }
+            }
+            data.classes=classString;
+            data.imd=imd[i];
+            break;
+          }
+        }
+        return data
+      })
+
+      //add centroids
+      map.selectAll(".centroid").data(centroids)
+      .enter().append("circle")
+      .attr("r", 5)
+      .attr("cx", function (d){ return d.centroid[0]; })
+      .attr("cy", function (d){ return d.centroid[1]; })
+      .attr("class", function (d){ return "centroid"+d.classes; })
+    });
+  })
+
+//load fequency data
+  d3.csv("imd_freq.csv",function(freq){
+    var imdf=[];
+    for (var i=0;i<8;i++){
+      var imdd=[];
+      var domain={};
+      for (var j=1;j<11;j++){
+        imdd.push({name:freq["columns"][j],value:freq[i][j]})
+      }
+      imdf.push(imdd);
+    }
+    var margin = {
+      top: 15,
+      right: 25,
+      bottom: 15,
+      left: 25
+    };
+
+    var hx = d3.scaleLinear()
+    .range([0, width/12])
+    .domain([0, d3.max(imdf[4], function (d) {
+      return +d.value;
+    })]);
+
+    var hy = d3.scaleBand()
+    .rangeRound([height/3, 0])
+    .padding(0.1)
+    .domain(imdf[0].map(function (d) {
+      return d.name;
+    }));
+
+    var yAxis = d3.axisLeft(hy)
+    .tickSize(0)
+
+
+
+    //loop to create histograms
+    for (var i=0;i<imdf.length;i++){
+
+      var histo = d3.select("#histograms").append("svg")
+      .attr("width", width/12 + margin.left + margin.right)
+      .attr("height", height/3 + margin.top + margin.bottom)
+      .attr("id", freq[i].index_domain)
+      .on ("mouseover", colorlsoas)
+      .on ("mouseout", greylsoas)
+      .append("g")
+      .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+
+
+      var gy = histo.append("g")
+      .attr("class", "y axis")
+      .call(yAxis)
+
+
+      var bars = histo.selectAll(".bar")
+      .data(imdf[i])
+      .enter()
+      .append("g")
+
+      //append rects
+      bars.append("rect")
+      .attr("class", "bar")
+      .attr("id", function (d) {
+        return freq[i].index_domain+d.name})
+        .attr("y", function (d) {
+          return hy(d.name);
+        })
+        .attr("height", hy.bandwidth())
+        .attr("x", 0)
+        .attr("width", function (d) {
+          return hx(d.value);
+        })
+        .attr("fill",function (d) {return colors[d.name-1]})
+        .on ("mouseover", showlsoas)
+        .on ("mouseout", hidelsoas)
+
+        //add a value label to the right of each bar
+        bars.append("text")
+        .attr("class", "label")
+        .attr("y", function (d) {
+          return hy(d.name) + hy.bandwidth() / 2 + 4;
+        })
+        //x position is 3 pixels to the right of the bar
+        .attr("x", function (d) {
+          return hx(d.value) + 3;
+        })
+        .text(function (d) {
+          return d.value;
+        });
+
+        var subtitle = histo.append("g")
+        .append("text")
+        .attr("class", "subtitle")
+        .attr("y", "0")
+        .style("text-anchor","start")
+        .text(freq[i].index_domain)
+
+      }
+
+
+    })
+
+    function showlsoas(d,i){
+      var key = this.id;
+      map.selectAll("."+key)
+      .style("stroke", "yellow")
+      .style("stroke-width", "3px");
+    }
+
+    function hidelsoas(d,i){
+      var key = this.id;
+      map.selectAll("."+key)
+      .style("stroke", "#ccc")
+      .style("stroke-width", "0.5px");
+    }
+
+    function colorlsoas(d,i){
+      var key = this.id;
+      map.selectAll(".centroid")
+      .style("fill", function (d) {return colors[d.imd[key]-1]});
+      map.selectAll(".mapTitle")
+      .text(imdDomains[key])
+
+    }
+
+    function greylsoas(d,i){
+      var key = this.id;
+    }
+
+  </script>
+</body>
